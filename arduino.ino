@@ -17,12 +17,22 @@ WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "0.fr.pool.ntp.org");
 
 String StartSeries = String("{\"series\":[");
+
 String TempSerie = String("{\"metric\":\"temperature\",\"points\":[[");
 String HumSerie = String("{\"metric\":\"humidity\",\"points\":[[");
-String PrevLatencySerie = String("{\"metric\":\"latency_ms.previous_loop\",\"points\":[[");
+
 String UpSerie = String("{\"metric\":\"uptime_ms\",\"points\":[[");
+String RSSISerie = String("{\"metric\":\"wifi.rssi_dbm\",\"points\":[[");
+String HeapFreeSerie = String("{\"metric\":\"memory.heap.free\",\"points\":[[");
+String HeapFragSerie = String("{\"metric\":\"memory.heap.fragmentation\",\"points\":[[");
+String HeapMaxSerie = String("{\"metric\":\"memory.heap.max\",\"points\":[[");
+String CycleSerie = String("{\"metric\":\"cpu.cycles\",\"points\":[[");
+String PrevLatencySerie = String("{\"metric\":\"latency.previous_loop_ms\",\"points\":[[");
+
 String MetadataSerie;
 unsigned int PrevLatencyMS = 0;
+uint32_t PrevCycleCount = 0;
+unsigned long PrevCycleMillis;
 
 void connect() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -35,7 +45,7 @@ void connect() {
     }
 }
 
-void send(unsigned long ts, float humidity, float temperature, unsigned long prevLatency) {
+void send(unsigned long ts, float humidity, float temperature, unsigned long start) {
     BearSSL::WiFiClientSecure secureClient;
     secureClient.setInsecure();
 
@@ -54,10 +64,32 @@ void send(unsigned long ts, float humidity, float temperature, unsigned long pre
     if (!isnan(temperature)) {
         payload += TempSerie + ts + String(",") + temperature + MetadataSerie + String(",");
     }
-    if (prevLatency > 0) {
-        payload += PrevLatencySerie + ts + String(",") + prevLatency + MetadataSerie + String(",");
+    if (PrevLatencyMS > 0) {
+        payload += PrevLatencySerie + ts + String(",") + PrevLatencyMS + MetadataSerie + String(",");
     }
-    payload += UpSerie + ts + String(",") + millis() + MetadataSerie + String("]}");
+
+    // memory metrics
+    uint32_t heapFree;
+    uint16_t heapMax;
+    uint8_t heapFrag;
+    ESP.getHeapStats(&heapFree, &heapMax, &heapFrag);
+    payload += HeapFreeSerie + ts + String(",") + String(heapFree) + MetadataSerie + String(",");
+    payload += HeapFragSerie + ts + String(",") + String(heapFrag) + MetadataSerie + String(",");
+    payload += HeapMaxSerie + ts + String(",") + String(heapMax) + MetadataSerie + String(",");
+
+    // Wifi
+    payload += RSSISerie + ts + String(",") + String(WiFi.RSSI()) + MetadataSerie + String(",");
+
+    // CPU and uptime
+    uint32_t cycleCount = ESP.getCycleCount();
+    unsigned long now = millis();
+    if (PrevCycleMillis > 0) {
+        payload += CycleSerie + ts + String(",") + String((cycleCount - PrevCycleCount) / (now - PrevCycleMillis)) + MetadataSerie + String(",");
+    }
+    PrevCycleMillis = now;
+    PrevCycleCount = cycleCount;
+
+    payload += UpSerie + ts + String(",") + now + MetadataSerie + String("]}"); // end of JSON
 
     Serial.println(payload);
     int code = https.POST(payload);
@@ -67,6 +99,7 @@ void send(unsigned long ts, float humidity, float temperature, unsigned long pre
     }
     https.end();
     secureClient.stop();
+    PrevLatencyMS = millis() - start;
 }
 
 void setup() {
@@ -87,8 +120,6 @@ void loop() {
     unsigned long start = millis();
     connect();
     timeClient.update();
-    send(timeClient.getEpochTime(), dht.readHumidity(), dht.readTemperature(), PrevLatencyMS);
-    PrevLatencyMS = millis() - start;
-    Serial.println("latency ms: " + String(millis() - start));
+    send(timeClient.getEpochTime(), dht.readHumidity(), dht.readTemperature(), start);
     delay(10000);
 }
