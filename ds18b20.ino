@@ -54,7 +54,7 @@ void send(unsigned long ts, float temperature) {
     https.addHeader("Content-Type", "application/json");
 
     String payload = StartSeries;
-    if (!isnan(temperature)) {
+    if (temperature != DEVICE_DISCONNECTED_C) {
         payload += TempSerie + ts + String(",") + temperature + MetadataSerie + String(",");
     }
 
@@ -91,6 +91,7 @@ void setup() {
 void loop() {
     connect();
     sensors.requestTemperatures();
-    send(timeClient.getEpochTime(), sensors.getTempCByIndex(0));
+    float t1 = sensors.getTempCByIndex(0);
+    send(timeClient.getEpochTime());
     delay(5000);
 }
