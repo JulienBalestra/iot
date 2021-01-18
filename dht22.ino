@@ -5,28 +5,25 @@
 #include <WiFiUdp.h>
 
 // Configuration
-#define DHTPIN D4
+#define DHTPIN 2
 #define DHTTYPE DHT22
-#define WIFI_AP "AP"
-#define WIFI_PASSWORD "Super-Wifi-Password"
+#define WIFI_AP "ap"
+#define WIFI_PASSWORD "password"
 #define DATADOG_PATH "/api/v1/series?api_key=123er"
-#define TAGS "[\"position:rocket\",\"room:kitchen\",\"location:home\"]"
+#define TAGS "[\"collector:arduino\",\"sensor:dht22\",\"room:kitchen\",\"location:place\",\"position:somewhere\"]"
 
 DHT dht(DHTPIN, DHTTYPE);
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "0.fr.pool.ntp.org");
 
-String StartSeries = String("{\"series\":[");
+String StartSeries = String("{series:[");
 
-String TempSerie = String("{\"metric\":\"dht.temperature\",\"points\":[[");
-String HumSerie = String("{\"metric\":\"dht.humidity\",\"points\":[[");
-
-String UpSerie = String("{\"metric\":\"uptime.seconds\",\"points\":[[");
-String RSSISerie = String("{\"metric\":\"network.wireless.rssi.dbm\",\"points\":[[");
-String PrevLatencySerie = String("{\"metric\":\"arduino.loop.latency\",\"points\":[[");
+String TempSerie = String("{metric:\"temperature.celsius\",type:\"gauge\",points:[[");
+String HumSerie = String("{metric:\"humidity.percent\",type:\"gauge\",points:[[");
+String UpSerie = String("{metric:\"up.time\",type:\"gauge\",\"points\":[[");
+String RSSISerie = String("{metric:\"network.wireless.rssi.dbm\",type:\"gauge\",points:[[");
 
 String MetadataSerie;
-unsigned int PrevLatencyMS = 0;
 
 void connect() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -37,9 +34,11 @@ void connect() {
         delay(500);
         Serial.print(".");
     }
+    timeClient.update();
 }
 
-void send(unsigned long ts, float humidity, float temperature, unsigned long start) {
+void send(unsigned long ts, float humidity, float temperature) {
+    digitalWrite(LED_BUILTIN, LOW);
     BearSSL::WiFiClientSecure secureClient;
     secureClient.setInsecure();
 
@@ -58,17 +57,12 @@ void send(unsigned long ts, float humidity, float temperature, unsigned long sta
     if (!isnan(temperature)) {
         payload += TempSerie + ts + String(",") + temperature + MetadataSerie + String(",");
     }
-    if (PrevLatencyMS > 0) {
-        payload += PrevLatencySerie + ts + String(",") + PrevLatencyMS + MetadataSerie + String(",");
-    }
 
     // Wifi
     payload += RSSISerie + ts + String(",") + String(WiFi.RSSI()) + MetadataSerie + String(",");
 
     // uptime
-    unsigned long now = millis();
-
-    payload += UpSerie + ts + String(",") + (now / 1000) + MetadataSerie + String("]}"); // end of JSON
+    payload += UpSerie + ts + String(",") + (millis() / 1000) + MetadataSerie + String("]}"); // end of JSON
 
     Serial.println(payload);
     int code = https.POST(payload);
@@ -78,27 +72,22 @@ void send(unsigned long ts, float humidity, float temperature, unsigned long sta
     }
     https.end();
     secureClient.stop();
-    PrevLatencyMS = millis() - start;
 }
 
 void setup() {
     Serial.begin(115200);
     Serial.println();
-    connect();
     dht.begin();
+    connect();
 
     String hostname = WiFi.macAddress();
     hostname.replace(":", "-");
     hostname.toLowerCase();
     MetadataSerie = String("]],\"host\":\"") + hostname + String("\",\"tags\":") + TAGS + String("}");
-
-    timeClient.update();
 }
 
 void loop() {
-    unsigned long start = millis();
     connect();
-    timeClient.update();
-    send(timeClient.getEpochTime(), dht.readHumidity(), dht.readTemperature(), start);
-    delay(10000);
+    send(timeClient.getEpochTime(), dht.readHumidity(), dht.readTemperature());
+    delay(5000);
 }
