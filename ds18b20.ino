@@ -85,7 +85,7 @@ void setup() {
     String hostname = WiFi.macAddress();
     hostname.replace(":", "-");
     hostname.toLowerCase();
-    MetadataSerie = String("]],\"host\":\"") + hostname + String("\",\"tags\":") + TAGS + String("}");
+    MetadataSerie = String("]],host:\"") + hostname + String("\",tags:") + TAGS + String("}");
 }
 
 void loop() {
